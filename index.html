@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RUM Archive Metrics</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/moment/min/moment.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+
+<style>
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background-color: #f0f0f0;
+}
+
+.summary-table {
+  width: 100%;
+  margin-top: 20px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  background-color: #ffffff;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+}
+
+th, td {
+  padding: 10px;
+  border-bottom: 1px solid #ddd;
+  font-size: 14px;
+  word-wrap: break-word;
+}
+
+th {
+  text-align: center !important;
+  background-color: #f2f2f2;
+}
+
+td {
+  text-align: right !important;
+  font-family: 'Courier New', monospace;
+}
+
+tr:hover {
+  background-color: #f0f0f0;
+}
+
+th:last-child, td:last-child {
+  border-right: none;
+}
+
+.content {
+  margin-left: 260px;
+  margin-right: 40px;
+  padding: 20px;
+  align-items: center;
+}
+
+.sidebar {
+  width: 220px;
+  padding: 20px;
+  background-color: #333;
+  color: white;
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100%;
+}
+
+.sidebar a {
+  display: block;
+  color: white;
+  padding: 10px 0;
+  text-decoration: none;
+}
+
+.sidebar a:hover {
+  background-color: #575757;
+}
+
+.sidebar .dropdown {
+  margin-bottom: 20px;
+}
+
+.dropdown select {
+  width: 100%;
+  padding: 10px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+  font-size: 16px;
+}
+
+.dropdown input {
+  width: 40%;
+  padding: 10px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+  font-size: 16px;
+}
+
+.row {
+  width: 100%;
+  margin-bottom: 30px;
+}
+
+.content-title {
+  font-size: 30px;
+  font-weight: bold;
+  margin-bottom: 30px;
+  text-align: center;
+  width: 100%;
+}
+
+.row-title {
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 10px;
+  border-bottom: 3px double #000;
+  text-align: center;
+  width: 100%;
+}
+
+.content-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.canvas-column canvas {
+  width: 100%;
+  height: 600px;
+  background-color: white;
+  border-radius: 1px;
+}
+
+.metric-container {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  padding: 10px;
+  margin-top: 10px;
+}
+
+.metric-item {
+  padding: 5px 10px;
+  margin: 0 5px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  background-color: #f9f9f9;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.sub-row {
+  flex: 1;
+  /* border: 1px double #000; */
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  background-color: #ffffff;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+}
+
+th, td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+  font-size: 14px;
+  word-wrap: break-word;
+}
+
+th {
+  background-color: #f2f2f2;
+}
+
+tr:hover {
+  background-color: #f0f0f0;
+  cursor: pointer;
+}
+</style>
+
+<script>
+  window.rumarchiveData = [];
+
+  const queryString = window.location.search;
+  const urlParams = new URLSearchParams(queryString);
+  
+  // Get os and percentile parameters, if they exist
+  const os = urlParams.get('os');
+  const percentile = urlParams.get('q');
+  
+  if (os) {
+    window.platformStatus = os;
+  } else {
+    window.platformStatus = 'Windows';
+  }
+  
+  if (percentile) {
+    window.percentileStatus = percentile;
+  } else {
+    window.percentileStatus = 'Mean';
+  }
+
+  window.minSampleSize = 100000;
+  
+  // Set some defaults.
+  window.allCharts = [];
+  
+  function setPercentile(percentile) {
+    const urlParams = new URLSearchParams(window.location.search);
+    urlParams.set('q', percentile);
+    const newUrl = `${window.location.pathname}?${urlParams.toString()}`;
+    window.history.replaceState(null, '', newUrl);
+
+    window.percentileStatus = percentile;
+    displayContent();
+  }
+  
+  function setPlatform(platform) {
+    const urlParams = new URLSearchParams(window.location.search);
+    urlParams.set('os', platform);
+    const newUrl = `${window.location.pathname}?${urlParams.toString()}`;
+    window.history.replaceState(null, '', newUrl);
+
+    window.platformStatus = platform;
+    displayContent();
+  }
+  
+  function writeContentTitle() {
+    const title = document.getElementById('content-title');
+    title.innerText = `${window.platformStatus} / ${window.percentileStatus}`;
+  }
+  
+  function plotChart(datasets, metric) {
+    const ctx = document.getElementById(metric+"-canvas").getContext('2d');
+    let chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        datasets: datasets,
+      },
+      options: {
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              unit: 'day',
+              displayFormats: {
+                  day: 'MMM D YYYY',  // Display day, month, and year
+              },
+              tooltipFormat: 'MMM D, YYYY',
+            },
+            title: {
+              display: true,
+              text: 'Release Date'
+            }
+          },
+          y: {
+            type: metric === "Samples" ? 'logarithmic' : 'linear',
+            beginAtZero: false,
+            title: { display: true, text: metric === "Samples" ? 'Samples' : 'Time (ms)' }
+          }
+        },
+        plugins: {
+          legend: {
+              onClick: function (e, legendItem) {
+                  // Find the clicked dataset
+                  const index = legendItem.datasetIndex;
+                  const isDatasetVisible = chart.isDatasetVisible(index);
+                  const datasetLabel = chart.data.datasets[index].label;
+
+                  // Toggle visibility for the clicked dataset in the current chart
+                  chart.setDatasetVisibility(index, !isDatasetVisible);
+                  chart.update();
+
+                  // Propagate the visibility change to all other charts
+                  window.allCharts.forEach(otherChart => {
+                      if (otherChart !== chart) { // Avoid applying the change to the same chart
+                          otherChart.data.datasets.forEach((otherDataset, otherIndex) => {
+                              // Ensure the series name (label) matches before toggling
+                              if (otherDataset.label === datasetLabel) {
+                                  otherChart.setDatasetVisibility(otherIndex, !isDatasetVisible);
+                              }
+                          });
+                          otherChart.update();
+                      }
+                  });
+              }
+          },
+          tooltip: {
+              callbacks: {
+                  label: function (tooltipItem) {
+                      const seriesName = tooltipItem.dataset.label; // Series name (user_agent)
+                      const xValue = tooltipItem.raw.x; // Date (x-axis value)
+                      const yValue = tooltipItem.raw.y.toFixed(2); // Y data point value (time in ms)
+                      const platformStatus = window.platformStatus; // OS status
+
+                      const filteredRow = window.rumarchiveData.filter(row =>
+                          row.os === platformStatus &&
+                          row.user_agent === seriesName &&
+                          row.date === xValue
+                      )[0]; // Get the first matching row
+
+                      // Get the version from the filtered row (if available)
+                      const version = filteredRow ? filteredRow.version : "N/A";
+
+                      // Return both the y-value and version in the tooltip
+                      return `${seriesName} - Version: ${version}, Value: ${yValue} ms`;
+                  }
+              }
+          },
+          zoom : {
+              pan: {
+                  enabled: false,
+              },
+              zoom: {
+                  mode: 'xy',
+                  drag: {
+                      enabled: true,
+                      borderColor: 'rgb(54, 162, 235)',
+                      borderWidth: 1,
+                      backgroundColor: 'rgba(54, 162, 235, 0.3)'
+                  },
+                  onZoom({ chart }) {
+                    window.allCharts.forEach(c => {
+                      c.zoomScale(
+                        'x',
+                        { min: Math.trunc(chart.scales.x.min), max: Math.trunc(chart.scales.x.max) },
+                        'none'
+                      );
+                    });
+                  },
+              },
+          },
+        }
+      },
+      plugins: [backgroundColorPlugin]
+    });
+  
+    window.allCharts.push(chart);
+  }
+  
+  function updateChart() {
+    Chart.helpers.each(Chart.instances, function (instance) {
+       instance.options.scales.xAxes[0].time.min = leftEnd;
+       instance.options.scales.xAxes[0].time.max = rightEnd;
+       instance.update();
+    });
+  }
+
+  function displayChartForMetric(data, metric) {
+    if (metric === "Samples") {
+      filteredData = data.filter(row => row["PLT"] !== undefined && row["PLT"]["count"] > window.minSampleSize);
+    } else {
+      filteredData = data.filter(row => row[metric] !== undefined && row[metric]["count"] > window.minSampleSize);
+    }
+
+    // Collect all unique user_agents
+    const userAgents = [...new Set(filteredData.map(row => row.user_agent))];
+
+    const percentile = window.percentileStatus;
+
+    // Prepare datasets for each user_agent
+    const datasets = userAgents.map(user_agent => {
+        const agentData = filteredData.filter(row => row.user_agent === user_agent);
+
+        return {
+            label: user_agent,  // Label for the series
+            data: agentData.map(row => ({
+                x: row.date,
+                y: metric === "Samples" ? row["PLT"]["count"] : row[metric][percentile]
+            })),
+            borderColor: getAgentColor(user_agent),  // Assign random colors
+            fill: false,  // Disable filling under the line
+            borderWidth: 1,
+            tension: 0.1  // Smoothness of the line
+        };
+    });
+
+    function getAgentColor(user_agent) {
+        switch (user_agent) {
+            case "Chrome":
+              return "#581845";  // Dark Purple
+            case "Chrome Mobile":
+              return "#2E8B57";  // Sea Green
+            case "Chrome Mobile WebView":
+              return "#3357FF";  // Strong Blue
+            case "Safari":
+              return "#FF33A8";  // Hot Pink
+            case "Mobile Safari":
+              return "#A833FF";  // Bright Purple
+            case "Edge":
+              return "#4682B4"   // Steel Blue
+            case "Edge Mobile":
+              return "#FF33D1";  // Neon Pink
+            case "Firefox":
+              return "#FF5733";  // Bright Orange-Red
+            case "Firefox iOS":
+              return "#FF5733";  // Bold Orange-Red
+            case "Firefox Android":
+              return "#DAF7A6";  // Light Green
+            case "Samsung Internet":
+              return "#A833FF";  // Bright Purple
+            case "Opera":
+              return "#900C3F";  // Dark Maroon
+            case "Opera Mobile":
+              return "#C70039";  // Rich Crimson
+            default:
+              return "#808080";  // Default: Grey
+          }
+    }
+
+    plotChart(datasets, metric);
+  }
+  
+  function displayCharts() {
+    while (window.allCharts.length > 0) {
+      window.allCharts.pop().destroy();
+    }
+  
+    const platform = window.platformStatus;
+    const filteredData = window.rumarchiveData.filter(row => row.os === platform);
+  
+    writeContentTitle();
+    displayChartForMetric(filteredData, "Samples");
+
+    window.metrics.forEach(metric => {
+      displayChartForMetric(filteredData, metric[0]);
+    });
+  }
+  
+  const backgroundColorPlugin = {
+    id: 'backgroundColor',
+    beforeDraw: (chart) => {
+      const {ctx, width, height} = chart;
+      ctx.fillStyle = '#f0f0f0';
+      ctx.fillRect(0, 0, width, height);
+    }
+  };
+
+  function displayContent() {
+    displayCharts();
+    generateComparisonTable();
+  }
+  
+  function loadData(dataUrl) {
+    fetch(dataUrl)
+      .then(response => response.json())
+      .then(data => {
+        window.rumarchiveData = data;
+        displayContent();
+      })
+      .catch(error => console.error('Error loading the JSON file:', error));
+  }
+  
+  function generateContent(dataUrl) {
+    const percentileInput = document.getElementById('percentile-select');
+    percentileInput.value = window.percentileStatus;
+    const platformInput = document.getElementById('platform-select');
+    platformInput.value = window.platformStatus;
+    loadData(dataUrl);
+  }
+
+  function getLatestVersionsByPlatform(data, platformStatus) {
+    const latestVersions = {};
+  
+    const filteredData = data.filter(row => row.os === platformStatus && row["PLT"] !== undefined && row["PLT"]["count"] >= window.minSampleSize);
+    filteredData.forEach(row => {
+      const userAgent = row.user_agent;
+  
+      // If this user_agent is not in the map or the current row has a more recent date, update it
+      if (!latestVersions[userAgent] || new Date(row.date) > new Date(latestVersions[userAgent].date)) {
+        latestVersions[userAgent] = row;
+      }
+    });
+  
+    return latestVersions;
+  }
+  
+  // Function to ensure Firefox is always first
+  function prioritizeFirefox(latestVersions) {
+    const firefoxKeys = ["Firefox", "Firefox iOS", "Firefox Mobile"];
+    const prioritized = {};
+    const others = {};
+  
+    Object.entries(latestVersions).forEach(([userAgent, data]) => {
+      if (firefoxKeys.includes(userAgent)) {
+        prioritized[userAgent] = data;
+      } else {
+        others[userAgent] = data;
+      }
+    });
+  
+    return { ...prioritized, ...others };
+  }
+  
+  // Function to generate the comparison table
+  function generateComparisonTable() {
+    let latestVersions = getLatestVersionsByPlatform(window.rumarchiveData, window.platformStatus);  // Filter by platform
+    latestVersions = prioritizeFirefox(latestVersions);  // Ensure Firefox is first
+
+    let firefoxName = "";
+    for (const userAgent of Object.keys(latestVersions)) {
+      if (userAgent.startsWith("Firefox")) {
+        firefoxName = userAgent;
+        break;  // Exits the loop when the condition is met
+      }
+    }
+  
+    const metricsList = []; 
+    window.metrics.forEach(metric => metricsList.push(metric[0]));
+    
+    const tableContainer = document.getElementById("summary-table");
+    tableContainer.innerHTML = ""; // Clear any existing table content
+    
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const tbody = document.createElement("tbody");
+  
+    const headerRow = document.createElement("tr");
+    const metricHeader = document.createElement("th");
+    metricHeader.textContent = "Metric";
+    headerRow.appendChild(metricHeader);
+  
+    const subHeaderRow = document.createElement("tr");
+    const emptySubHeader = document.createElement("th");
+    subHeaderRow.appendChild(emptySubHeader); // Empty for the "Metric" column
+  
+    // Add a header and subheadings for each browser (user_agent)
+    Object.keys(latestVersions).forEach(userAgent => {
+      const th = document.createElement("th");
+      th.style.borderLeft = "1px solid #ddd";
+      
+      // If Firefox, don't include the speedup column
+      if (userAgent === firefoxName) {
+        th.setAttribute("colspan", "1"); // Only "Time"
+      } else {
+        th.setAttribute("colspan", "2"); // "Time" and "Speedup"
+      }
+      th.textContent = `${userAgent} ${latestVersions[userAgent].version}`;
+      headerRow.appendChild(th);
+  
+      // Subheading for "time" (and "speedup" only if not Firefox)
+      const timeSubHeader = document.createElement("th");
+      timeSubHeader.textContent = "Value";
+      timeSubHeader.style.borderLeft = "1px solid #ddd";
+      subHeaderRow.appendChild(timeSubHeader);
+  
+      if (userAgent !== firefoxName) {
+        const speedupSubHeader = document.createElement("th");
+        speedupSubHeader.textContent = "Speedup (%)";
+        speedupSubHeader.style.borderRight = "1px solid #ddd";
+        subHeaderRow.appendChild(speedupSubHeader);
+      }
+    });
+    thead.appendChild(headerRow);
+    thead.appendChild(subHeaderRow);
+  
+    // Add rows for each metric
+    metricsList.forEach(metric => {
+      const row = document.createElement("tr");
+  
+      // First column: the metric name
+      const metricCell = document.createElement("td");
+      metricCell.textContent = metric;
+      row.appendChild(metricCell);
+  
+      // Store Firefox value for comparison
+      let firefoxValue = null;
+
+      // Get the Firefox value for the metric (if available)
+      if (latestVersions[firefoxName] && latestVersions[firefoxName][metric] && latestVersions[firefoxName][metric][window.percentileStatus]) {
+        firefoxValue = latestVersions[firefoxName][metric][window.percentileStatus];
+      }
+  
+      // Add the value and speedup for each browser
+      Object.entries(latestVersions).forEach(([userAgent, browserData]) => {
+        const timeCell = document.createElement("td");
+        timeCell.style.borderLeft = "1px solid #ddd";
+
+        const speedupCell = document.createElement("td");
+        speedupCell.style.borderRight = "1px solid #ddd";
+  
+        // Get the value for the selected percentile or mean for each browser's metric
+        if (browserData[metric] && browserData[metric][window.percentileStatus]) {
+          const value = browserData[metric][window.percentileStatus].toFixed(1); // Limit to 1 decimal place
+          timeCell.textContent = `${value}`;
+  
+          if (userAgent !== firefoxName && firefoxValue) {
+            // Calculate speedup percentage compared to Firefox
+            const speedup = ((firefoxValue - browserData[metric][window.percentileStatus]) / firefoxValue) * 100;
+            speedupCell.textContent = `${speedup.toFixed(1)}%`;
+            if (speedup > 10) {
+              speedupCell.style.color = "red";
+            }
+            if (speedup < -10) {
+              speedupCell.style.color = "green";
+            }
+          } else {
+            speedupCell.textContent = "N/A";  // No speedup comparison for Firefox
+          }
+        } else {
+          timeCell.textContent = "N/A"; // If the metric is missing
+          speedupCell.textContent = "N/A";
+        }
+        
+        row.appendChild(timeCell);
+        if (!userAgent.startsWith("Firefox")) {
+          row.appendChild(speedupCell); // Only append speedup for non-Firefox
+        }
+      });
+  
+      tbody.appendChild(row);
+    });
+  
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    tableContainer.appendChild(table);
+  }
+  
+  function createSidebarSections(metrics) {
+    var sectionsHTML = '<a href="#content-title">Summary</a>\n';
+    sectionsHTML += '<a href="#Samples-section">Sample Counts</a>\n';
+    metrics.forEach(function(metric) {
+      sectionsHTML += `<a href="#${metric[0]}-section">${metric[1]}</a>\n`;
+    });
+    document.querySelector('.sections').innerHTML = sectionsHTML;
+  }
+  
+  function createChartsContent(metrics) {
+    var chartsHTML = '';
+    chartsHTML += `
+          <div class="row-title" id="Samples-section">Sample Counts</div>
+            <div class="row">
+              <div class="canvas-column">
+                <canvas id="Samples-canvas"></canvas> 
+                <button onclick="window.allCharts.forEach(chart => chart.resetZoom())"> 
+                    Reset Zoom
+                </button> 
+              </div> 
+            </div>
+        `;
+
+    metrics.forEach(function(metric) {
+      chartsHTML += `
+              <div class="row-title" id="${metric[0]}-section">${metric[1]}</div>
+              <div class="row">
+                <div class="canvas-column">
+                  <canvas id="${metric[0]}-canvas"></canvas> 
+                  <button onclick="window.allCharts.forEach(chart => chart.resetZoom())"> 
+                      Reset Zoom
+                  </button> 
+                </div> 
+              </div>
+          `;
+    });
+    document.querySelector('.charts-content').innerHTML = chartsHTML;
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+      const dataUrl = 'rumarchive-data.json';
+      generateContent(dataUrl);
+  });
+</script>
+
+</head>
+<body>
+  <div class="sidebar">
+    <div class="dropdown">
+      <label for="percentile-select">Percentile:</label>
+      <select id="percentile-select" onchange="setPercentile(this.value)">
+        <option value="Mean">Mean</option>
+        <option value="P25">25th Percentile</option>
+        <option value="P50">50th Percentile (Median)</option>
+        <option value="P75">75th Percentile</option>
+        <option value="P90">90th Percentile</option>
+        <option value="P95">95th Percentile</option>
+        <option value="P99">99th Percentile</option>
+        <option value="P99.9">99th Percentile</option>
+      </select>
+    </div>
+    <div class="dropdown">
+      <label for="platform-select">OS:</label>
+      <select id="platform-select" onchange="setPlatform(this.value)">
+        <option value="Windows">Windows</option>
+        <option value="Linux">Linux</option>
+        <option value="Mac OS X">Mac OS X</option>
+        <option value="Android OS">Android</option>
+        <option value="iOS">iOS</option>
+      </select>
+    </div>
+
+    <div class="sections">
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="content-title" id="content-title">
+    </div>
+
+    <div class="row-title" id="summary-title">Summary Table</div>
+    <div class="row">
+      <div class="summary-table" id="summary-table">
+      </div>
+    </div>
+
+    <div class="charts-content">
+    </div>
+  </div>
+
+
+  <script>
+    var metrics = [
+      ["PLT", "Page Load Time"],
+      ["FCP", "First Contentful Paint Time"],
+      ["LCP", "Largest Contentful Paint Time"],
+      ["DNS", "DNS Time"],
+      ["TCP", "TCP Time"],
+      ["TLS", "TLS Time"],
+      ["REDIRECT", "Redirect Time"],
+      ["RTT", "Round Trip Time"],
+      ["RAGECLICKS", "Rage Clicks"],
+      ["TTFB", "Time to First Byte"],
+      ["TBT", "Total Blocking Time"],
+      ["TTI", "Time to Interactive"]
+    ];
+
+    // Create sidebar sections
+    createSidebarSections(metrics);
+    // Create charts content
+    createChartsContent(metrics);
+  </script>
+</body>
+</html>
