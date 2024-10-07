@@ -1,2 +1,2 @@
 # rumarchive
-RUMArchive Data Aggregation
+This project hosts a Github Pages visualization of browser comparison using the [RUMArchive](https://rumarchive.com/) dataset from Akamai.  All data is collected from the public bigquery data set offered by Akamai and aggregated by browser version.  Browser versions are correlated to release dates using [The MDN Browser Compat Data](https://github.com/mdn/browser-compat-data) database.
