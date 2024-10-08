@@ -7,7 +7,6 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/moment/min/moment.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
 
 <style>
 body {
@@ -322,29 +321,6 @@ tr:hover {
                       return `${seriesName} - Version: ${version}, Value: ${Number(yValue).toLocaleString()}`;
                   }
               }
-          },
-          zoom : {
-              pan: {
-                  enabled: false,
-              },
-              zoom: {
-                  mode: 'xy',
-                  drag: {
-                      enabled: true,
-                      borderColor: 'rgb(54, 162, 235)',
-                      borderWidth: 1,
-                      backgroundColor: 'rgba(54, 162, 235, 0.3)'
-                  },
-                  onZoom({ chart }) {
-                    window.allCharts.forEach(c => {
-                      c.zoomScale(
-                        'x',
-                        { min: Math.trunc(chart.scales.x.min), max: Math.trunc(chart.scales.x.max) },
-                        'none'
-                      );
-                    });
-                  },
-              },
           },
         }
       },
