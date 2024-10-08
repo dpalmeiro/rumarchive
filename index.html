@@ -319,7 +319,7 @@ tr:hover {
                       const version = filteredRow ? filteredRow.version : "N/A";
 
                       // Return both the y-value and version in the tooltip
-                      return `${seriesName} - Version: ${version}, Value: ${yValue}`;
+                      return `${seriesName} - Version: ${version}, Value: ${Number(yValue).toLocaleString()}`;
                   }
               }
           },
